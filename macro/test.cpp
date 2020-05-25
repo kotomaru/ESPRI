@@ -1,0 +1,99 @@
+#ifndef __CINT__
+#include "iostream"
+#include "string.h"
+#include "stdio.h"
+#include "TFile.h"
+#include "TTree.h"
+#include "TChain.h"
+#include "TCanvas.h"
+#include "TH1.h"
+#include "TH2.h"
+#include "TString.h"
+#include "TClonesArray.h"
+#include "TArtStoreManager.hh"
+#include "TArtEventStore.hh"
+#include "TArtRawEventObject.hh"
+#include "TArtRawFADCDataObject.hh"
+#include "TArtESPRIParameters.hh"
+#include "TArtUserParameters.hh"
+#include "TArtCalibPlas.hh"
+#include "TArtPlas.hh"
+#include "TArtCalibTDCHit.hh"
+#include "TArtTDCHit.hh"
+#include "TArtCalibSRPPAC.hh"
+#include "TArtSRPPAC.hh"
+#include "TArtBigRIPSParameters.hh"
+#include "signal.h"
+
+#endif
+
+bool stoploop = false;
+void stop_interrupt(int sig){
+  printf("keybprd interrupt\n");
+  stoploop = true;
+}
+/*****const value*********/
+
+int main(int argc, char * argv[]){
+  std::string fname; Long64_t emax;
+  if(argc == 1){
+    fname = "~/quser/work/enyo/rootfile/5056.root";
+    //    emax = 5.E+4;
+  }else if(argc == 2){
+    fname = argv[1];
+    // emax = -1;
+  }else if(argc == 3){
+    fname = argv[1];
+    // emax = atoi(argv[2]);
+    std::cout << fname << std::endl;
+  }else{
+    std::cout << "Usage: ./test 0000.root"<<std::endl;
+    return -1;
+  }
+
+  TChain *tespri = new TChain("rtree");
+  TString strroot = Form("%s",fname.c_str());
+  tespri->Add(strroot);
+
+  TClonesArray *srppac_array=0;
+  tespri->SetBranchAddress("ESPRISRPPAC",&srppac_array);
+  TClonesArray *tdc_array=0;
+  tespri->SetBranchAddress("ESPRITDC",&tdc_array);
+  //tdc_array = tespri->UseBranch("ESPRITDC");
+  TClonesArray *plas_array=0;
+  tespri->SetBranchAddress("ESPRIPLAS",&plas_array);
+  
+  Int_t neve = tespri->GetEntries();
+    /************* Fill data to new tree*******************/
+  for(Int_t ne=0;ne<neve;ne++){
+    tespri->GetEntry(ne);
+    Int_t nsrppac = srppac_array->GetEntries();
+    Int_t ntdc = tdc_array->GetEntries();
+    Int_t nplas = plas_array->GetEntries();
+
+    std::cout<<ne<<":"<<nsrppac<<":"<<ntdc<<":"<<nplas<<std::endl;
+    /*********  ESPRISRPPAC    *******************************/
+    for(Int_t i=0;i<nsrppac;i++){
+      TArtSRPPAC *hit_srppac = (TArtSRPPAC *)srppac_array->At(i);
+      Int_t layer = hit_srppac->GetLayer();
+      //  std::cout<<ne<<":"<<i<<":"<<layer<<":"<<hit_srppac->GetSRPPACX()<<std::endl;
+      
+    }
+
+   if(ne%100==0){
+     printf("Event:%10d/%10d\r"
+	    ,ne,neve);
+     fflush(stdout);    
+   }
+
+    
+  }//end of ne(tespri) roop to neve & fill()
+  
+  TFile *anafile = new TFile("testcp.root","RECREATE");
+  plas_array->Write();
+  anafile->Close();
+
+  return 0;
+}
+
+

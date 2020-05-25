@@ -1,0 +1,315 @@
+#ifndef __CINT__
+#include <iostream>
+#include <string.h>
+#include <stdio.h>
+#include <TFile.h>
+#include <TTree.h>
+#include <TChain.h>
+#include <TCanvas.h>
+#include <TEllipse.h>
+#include <TH1.h>
+#include <TH2.h>
+#include <TString.h>
+#include "TArtStoreManager.hh"
+#include "TClonesArray.h"
+#include "TArtEventStore.hh"
+#include "TArtRawEventObject.hh"
+#include "TArtRawFADCDataObject.hh"
+#include "TArtESPRIParameters.hh"
+#include "TArtUserParameters.hh"
+#include "TArtCalibSRPPAC.hh"
+#include "TArtCalibTDCHit.hh"
+#include "TArtCalibPlas.hh"
+#include "TArtBigRIPSParameters.hh"
+#include "TArtSRPPAC.hh"
+#include "TArtPlas.hh"
+#include "TArtTDCHit.hh"
+#include "signal.h"
+
+#endif
+
+bool stoploop = false;
+void stop_interrupt(int sig){
+  printf("keybprd interrupt\n");
+  stoploop = true;
+}
+/*****const value*********/
+
+//Trigger condition of f12N2 
+const int tmin_f12n2=-8000; const int tmax_f12n2=-6000;//Sn&Ca
+//const int qmin_f12n2=1000;  const int qmax_f12n2=2000;//Sn
+const int qmin_f12n2=700;  const int qmax_f12n2=2500;//Ca
+
+const int tmin_f7dia=8300; const int tmax_f7dia=10700;//Ca
+const int tmin_f3dia=-1300; const int tmax_f3dia=1000;//Ca
+
+int main(int argc, char * argv[]){
+  std::string fname; Long64_t emax;
+  if(argc == 1){
+    fname = "~/quser/work/enyo/rootfile/5056.root";
+    //    emax = 5.E+4;
+  }else if(argc == 2){
+    fname = argv[1];
+    // emax = -1;
+  }else if(argc == 3){
+    fname = argv[1];
+    // emax = atoi(argv[2]);
+    std::cout << fname << std::endl;
+  }else{
+    std::cout << "Usage: ./reconst 0000.root"<<std::endl;
+    return -1;
+  }
+  std::string outdir = fname.substr(9,2);
+  std::string outfile = fname.substr(12);
+
+  TChain *tespri = new TChain("rtree");
+  TString strroot = Form("%s",fname.c_str());
+  tespri->Add(strroot);
+
+  //*******Define global variables in variable.h***********
+  Double_t vx_f5[2][2];//BLD52(SRPPAC)[51 or 52][X or Y]//Ca run has only 52X  
+  Double_t vxe12[2][2]={{-1111,-1111},{-1111,-1111}};//F12Xe raw [left or right] [tdc or adc]
+  Double_t vxe12d[2][2]={{-1111,-1111},{-1111,-1111}};//F12XeDelay raw [left or right] [tdc or adc]
+  Double_t vn2[2][2]={{-1111,-999999},{-1111,-999999}};//F12N2 raw [left or right] [tdc or adc]
+  Double_t vdia[2][4]={-999999,-999999};//Dia timing raw [f3 or f7][pad 1-4] 
+  Double_t vdia_mean[2]={-999999,-999999};//Dia timing raw [f3 or f7] 
+
+  //for analysis
+  Double_t vtof_f37=-9999;
+  Double_t vxe12_q=-1111;
+  Double_t vn2_q=-1111;
+
+/******************************************************/
+
+  //*********new TTree for analysis*************/
+  TTree *tana = new TTree("tana","tana");
+
+  tana->Branch("bldf5",&vx_f5,"bldf5[2][2]/D");//[BLD51 or 52][X or Y]
+  tana->Branch("f12xe",&vxe12,"f12xe[2][2]/D");//[Left or Right][Time or ADC]
+  tana->Branch("f12xed",&vxe12d,"f12xed[2][2]/D");//[Left or Right][Time or ADC]
+  tana->Branch("f12n2",&vn2,"f12n2[2][2]/D");//[Left or Right][Time or ADC]
+  tana->Branch("Dia_t",&vdia_mean,"Dia_t[2]/D");//[f3Dia or f7Dia]
+  /**************************************************************/
+
+  Double_t cx1=9945.;Double_t cy1=1015.;
+  Double_t rx1=56.;Double_t ry1=52.; 
+  TEllipse *cca48_3133 = new TEllipse(cx1,cy1,rx1,ry1,0.,360.,0);
+  Double_t cx2=10000.;Double_t cy2=1015.;
+  Double_t rx2=380.;Double_t ry2=300.; 
+  TEllipse *call_3133 = new TEllipse(cx2,cy2,rx2,ry2,0.,360.,0);
+
+  /*******histgram********************************/
+  Int_t npi=3;//number of hist for PI
+  TH2F *hpi[npi];  
+  hpi[0]=new TH2F("hpi_00","f3f7tofhsi vs f12XeQ",200,9600,10400,100,400,1500);
+  hpi[1]=new TH2F("hpi_01","f3f7tofhsi vs f12XeQ GateIN",200,9600,10400,100,400,1500);
+  hpi[2]=new TH2F("hpi_02","f3f7tofhsi vs f12XeQ",100,9600,10400,100,400,1500);
+  /**************************************************/
+
+  TClonesArray *srppac_array=0;
+  tespri->SetBranchAddress("ESPRISRPPAC",&srppac_array);
+  TClonesArray *plas_array=0;
+  tespri->SetBranchAddress("ESPRIPLAS",&plas_array);
+  TClonesArray *tdc_array=0; 
+  tespri->SetBranchAddress("ESPRITDC",&tdc_array);
+
+
+  Int_t neve = tespri->GetEntries();
+  int nbdcok=0; //number of the event of "traking ok" 
+  TArtSRPPAC *hit_srppac = 0;
+  TArtPlas *hit_pla = 0;
+  TArtTDCHit *hit_tdc = 0;
+
+  /************* Fill data to new tree*******************/
+  for(Int_t ne=0;ne<neve;ne++){
+    Int_t trigN2[2]={0};//N2 scinti tdc & qdc ok [left&right]
+    Int_t trigveto=1;//veto
+    tespri->GetEntry(ne);
+    Int_t nsrppac = srppac_array->GetEntries();
+    Int_t npla = plas_array->GetEntries(); 
+    Int_t ntdc = tdc_array->GetEntries();
+    Int_t nmd[4]={0};//Dia multiplicity
+    Int_t nmn2[2]={0};//N2 multiplicity
+   
+    for(Int_t j=0;j<2;j++){
+      vn2[j][0]=-999999;
+    }
+    vdia_mean[0]=-999999;vdia_mean[1]=-999999;
+    for(Int_t j=0;j<4;j++){
+      vdia[0][j]=-999999;vdia[1][j]=-999999;
+    }
+  
+   //    std::cout<<ne<<" "<<nnai<<std::endl;
+
+    /*********  ESPRISRPPAC    *******************************/
+    vx_f5[0][0]=-999;vx_f5[0][1]=-999;vx_f5[1][0]=-999;vx_f5[1][1]=-999;
+    for(Int_t i=0;i<nsrppac;i++){
+      TArtSRPPAC *hit_srppac = (TArtSRPPAC *)srppac_array->At(i);
+      Int_t layer = hit_srppac->GetLayer();
+      //      std::cout<<ne<<":"<<i<<":"<<layer<<":"<<hit_srppac->GetSRPPACX()<<std::endl;   
+      vx_f5[layer-1][0] = hit_srppac->GetSRPPACX();
+      vx_f5[layer-1][1] = hit_srppac->GetSRPPACY();
+    }
+
+    /**********qdc from ESPRIPLAS          ****************/  
+    for(Int_t i=0;i<2;i++){
+      for(Int_t ii=0;ii<2;ii++){
+	vxe12[i][ii]=-1111;vxe8[i][ii]=-1111;vn2[i][ii]=-1111;
+      }
+    }
+    for(Int_t i=0;i<npla;i++){
+      TArtPlas *hit_pla = (TArtPlas *)plas_array->At(i);
+      Int_t id_plane = hit_pla->GetPlaneID();
+      Int_t layer = hit_pla->GetLayer();
+      Int_t channel = hit_pla->GetCh();
+      
+      if(layer==3 && id_plane==33){
+	if(channel==1){//F12Xe left no Delay
+	  vxe12[0][0] = (Double_t)hit_pla->GetTime();
+	  vxe12[0][1] = (Double_t)hit_pla->GetEnergy();
+	}else if(channel==2){//F12Xe right no Delay
+	  vxe12d[0][0] = (Double_t)hit_pla->GetTime();
+	  vxe12d[0][1] = (Double_t)hit_pla->GetEnergy();
+	}else if(channel==3){//F12Xe right no Delay
+	  vxe12[1][0] = (Double_t)hit_pla->GetTime();
+	  vxe12[1][1] = (Double_t)hit_pla->GetEnergy();
+	}else if(channel==4){//F12Xe right no Delay
+	  vxe12d[1][0] = (Double_t)hit_pla->GetTime();
+	  vxe12d[1][1] = (Double_t)hit_pla->GetEnergy();
+	}
+      }
+      if(layer==1 && id_plane==31){
+      	if(channel==1){//N2 left no Delay
+	  //      	  vn2[0][0] = (Double_t)hit_pla->GetTime();
+      	  vn2[0][1] = (Double_t)hit_pla->GetEnergy();
+      	}else if(channel==2){//N2 left no Delay
+	  //      	  vn2[1][0] = (Double_t)hit_pla->GetTime();
+      	  vn2[1][1]= (Double_t)hit_pla->GetEnergy();
+      	}
+      }
+
+    }//end of the roop npla
+
+    /**********fLTDC from ESPRITDC          ****************/  
+    
+    for(int i=0;i<ntdc;i++){
+      TArtTDCHit *hit_tdc = (TArtTDCHit *)tdc_array->At(i);
+      Int_t id_plane = hit_tdc->GetPlaneID();
+      Int_t layer = hit_tdc->GetLayer();
+      Int_t wireid = hit_tdc->GetWireID();
+      Int_t toffset = hit_tdc->GetTzero();
+      Int_t fltdc = hit_tdc->GetTDC();
+
+      if(layer==1&&id_plane==31){
+	for(Int_t j=0;j<2;j++){
+	  if(wireid=j+1&&fltdc>tmin_f12n2&&fltdc<tmax_f12n2){
+	    vn2[j][0]=fltdc;
+	    //std::cout<<nmd[j]<<":"<<fltdc<<std::endl;
+	  }
+	}
+      }
+       
+
+      if(layer==13&&id_plane==97){
+      	for(Int_t j=0;j<4;j++){
+	  if(wireid==j+1&&fltdc>tmin_f3dia&&fltdc<tmax_f3dia){
+    	    vdia[0][j]=fltdc;
+    	  }
+      	} 
+      }
+      if(layer==17&&id_plane==98){
+      	for(Int_t j=0;j<4;j++){
+      	  if(wireid==j+1&&fltdc>tmin_f7dia&&fltdc<tmax_f7dia){
+    	    vdia[1][j]=fltdc;
+    	  }   
+    	}  
+      }
+    }//end of the roop ntdc
+    for(Int_t i=0;i<2;i++){
+      if(vdia[i][0]>-999990&&vdia[i][1]>-999990
+    	 &&vdia[i][2]>-999990&&vdia[i][3]>-999990){
+    	vdia_mean[i]=(vdia[i][0]+vdia[i][1]+vdia[i][2]+vdia[i][3])/4.;
+      }
+    }
+
+    /**************  analysis here   ******************************/
+    vtof_f37=-9999;vxe12_q=-1111;vxe8_q=-1111;vn2_q=-1111;
+
+    /** Trigger & cut setting **/
+    for(Int_t i=0;i<2;i++){//N2 trig 
+      if(vn2[i][0]>tmin_f12n2 && vn2[i][0]<tmax_f12n2){
+	if(vn2[i][1]>qmin_f12n2 && vn2[i][1]<qmax_f12n2){
+	  trigN2[i]=1;
+	}
+      }
+    }
+    /*-----------------------*/
+
+    vtof_f37 = (vdia_mean[1]-vdia_mean[0]); //ToF between f3 & f7 Dia
+    vxe12_q = (vxe12[0][1]-vxe12d[0][1]+vxe12[1][1]-vxe12d[1][1])/2.; //F12 Xe q
+    vxe8_q = (vxe8[0][1]-vxe8d[0][1]+vxe8[1][1]-vxe8d[1][1])/2.; //F8 Xe q
+    vn2_q = (vn2[0][1]+vn2[1][1])/2.; //F8 Xe q
+       
+    /*****************************************/
+    //FILL to tree!!!
+    tana->Fill();//event Fill
+
+    Double_t tmpx; Double_t tmpy;
+   //Fill to hist when trigger is OK
+   if(trigN2[0]*trigN2[1]==1){
+     hpi[0]->Fill(vtof_f37-(vx_f5[1][0]-60)*4.5,vxe12_q);
+     tmpx=vtof_f37-(vx_f5[1][0]-60)*4.5;
+     tmpy=vxe12_q;
+     
+     if((tmpx-cx1)*(tmpx-cx1)/rx1/rx1+(tmpy-cy1)*(tmpy-cy1)/ry1/ry1-1.<=0){
+       hpi[1]->Fill(tmpx,tmpy);
+     }     
+     if((tmpx-cx2)*(tmpx-cx2)/rx2/rx2+(tmpy-cy2)*(tmpy-cy2)/ry2/ry2-1.<=0){
+       hpi[2]->Fill(tmpx,tmpy);
+     }     
+   } 
+  if(ne%100==0){
+     printf("Event:%10d/%10d\r"
+	    ,ne,neve);
+     fflush(stdout);    
+   }
+   if(ne%100==50000){
+     tana->Write();   
+   }
+   
+  }//end of ne(tespri) roop to neve & fill()
+  
+  
+  /*************************************************************************/
+
+  /************* make canvas ****************************/
+  cca48_3133->SetFillStyle(0);
+  call_3133->SetFillStyle(0);
+  TCanvas *ccut = new TCanvas("cut48","cut48");
+  ccut->Divide(2,1);
+  ccut->cd(1);
+  hpi[0]->Draw("colz");
+  cca48_3133->Draw("same"); 
+  ccut->cd(2);
+  hpi[0]->Draw("colz");
+  call_3133->Draw("same"); 
+
+ /**********************************************/
+  std::string output = outdir+"/"+"pi_"+outfile;
+  TFile *anafile = new TFile(Form("anaresult/%s",output.c_str()),"RECREATE");
+
+  tana->Write();
+  for(Int_t i=0;i<npi;i++){
+    hpi[i]->Write();
+  } 
+  ccut->Write();
+
+  anafile->Close(); 
+
+  std::cout<<"input = "<<fname<<", evenumber = "<<neve<<std::endl;
+
+  std::cout<<"analysis rootfile is created as anaresult/"<<output<<std::endl;
+  return 0;
+}
+
+

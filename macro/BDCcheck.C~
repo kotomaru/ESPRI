@@ -1,0 +1,22 @@
+//someting wrong -> segmentation violation
+
+int BDCcheck(){
+  TH2F h[16]; 
+  for(int i=0;i<16;i++){
+    h[i]=new TH2F(Form("h%d",i+1),Form("h%d",i+1),15,1,16,100,1200,2800);
+  }
+  for(int i=0;i<8;i++){ 
+    for(int j=0;j<2;j++){
+    rtree->Draw(Form("ESPRITDC.fLTDC:ESPRITDC.wireid>>h%d",i+j*8)
+		,Form("ESPRITDC.id_plane==%d&&ESPRITDC.layer==%d",i+1+j*8,i+1),"colz");
+    }
+  }
+  ct = new TCanvas("ct","wireid vs TDC",1500,900);
+  ct->Divide(4,4); 
+  ct->Update();
+  for(int i=0;i<16;i++){
+    ct->cd(i+1);
+    h[i]->Draw();
+  }
+
+}

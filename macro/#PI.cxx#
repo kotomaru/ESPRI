@@ -1,0 +1,58 @@
+#ifndef __CINT__
+#include <iostream>
+#include <string.h>
+#include <stdio.h>
+#include <TFile.h>
+#include <TTree.h>
+#include <TChain.h>
+#include <TCanvas.h>
+#include <TH1.h>
+#include <TH2.h>
+#include <TString.h>
+#include "TArtStoreManager.hh"
+#include "TClonesArray.h"
+#include "TArtEventStore.hh"
+#include "TArtRawEventObject.hh"
+#include "TArtESPRIParameters.hh"
+#include "TArtUserParameters.hh"
+#include "TArtCalibRNaI.hh"
+#include "TArtCalibTDCHit.hh"
+#include "TArtCalibPlas.hh"
+#include "TArtSRPPAC.hh"
+#include "TArtBigRIPSParameters.hh"
+#include "TArtPlas.hh"
+#include "TArtBDC.hh"
+#include "TArtTDCHit.hh"
+#include "TArtRNaI.hh"
+#include "signal.h"
+
+#endif
+
+bool stoploop = false;
+void stop_interrupt(int sig){
+  printf("keybprd interrupt\n");
+  stoploop = true;
+}
+
+int main(int argc, char * argv[]){
+  std::string fname; Long64_t emax;
+  if(argc == 1){
+    fname = "~/quser/work/enyo/rootfile/5056.root";
+    //    emax = 5.E+4;
+  }else if(argc == 2){
+    fname = argv[1];
+    // emax = -1;
+  }else if(argc == 3){
+    fname = argv[1];
+    // emax = atoi(argv[2]);
+    std::cout << fname << std::endl;
+  }else{
+    std::cout << "Usage: ./reconst 0000.root"<<std::endl;
+    return -1;
+  }
+
+
+
+
+
+}

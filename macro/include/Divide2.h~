@@ -1,0 +1,1 @@
+void Divide2(TPad* c,Double_t ratio)

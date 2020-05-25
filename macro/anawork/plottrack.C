@@ -1,0 +1,174 @@
+/* macro to draw BDC data for HIMAC2015*/
+#ifndef __CINT__
+
+#include "Riostream.h"
+#include "TROOT.h"
+#include "TSystem.h"
+#include "TStyle.h"
+#include "TFile.h"
+#include "TTree.h"
+#include "TClonesArray.h"
+#include "TCanvas.h"
+#include "TH1F.h"
+#include "TH2F.h"
+#include "TEllipse.h"
+#include "TBox.h"
+#include "TApplication.h"
+
+#include "TArtStoreManager.hh"
+#include "TArtEventStore.hh"
+#include "TArtCalibBDC.hh"
+#include "TArtBDC.hh"
+#include "TArtCalibTDCHit.hh"
+#include "TArtTDCHit.hh"
+
+#endif
+
+void plottrack(){
+
+  //const Double_t geom[2][3]={{4.125,4.125,-141.0},{4.125,4.125,-41.0}};//cm
+  //Double_t geom[2][3]={{4.125,4.125,-141.0},{4.125,4.125,-41.0}};//cm
+  //  Double_t geom[2][3]={{4.125,4.125,-146.0},{4.125,4.125,-46.0}};//cm //RIBF2016
+  Double_t geom[2][3]={{4.125,4.125,-142.72},{4.125,4.125,-42.39}};//cm //RIBF2019
+  Double_t xx[2][4];//BDC1, BDC2; x,th,y,ph
+  Double_t rx[2][4];//RDCu, RDCd; x,th,y,ph
+  Double_t scatt[2];//RDCu, RDCd; x,th,y,ph
+  const Double_t z_veto=-21.2;
+  const Double_t r2d = 57.2958;
+  const Double_t focus = 0.;//focus point default=0.0
+  
+  for(Int_t i=0;i<2;i++)
+    geom[i][2] += focus;
+  Int_t period=1.e4;
+  Int_t minx=-170,maxx=+30;
+  Int_t miny=-5.,maxy=5.;
+  TCanvas *cp = new TCanvas("cp","BDC Profile",0,0,500,750);
+  TCanvas *cf = new TCanvas("cf","BDC Focus",500,0,500,500);
+
+  const Double_t by1 = -4., by2 = +4.;
+  const Double_t bx1 = geom[0][2]-10.,bx2 = geom[0][2]+10.;
+  const Double_t bx3 = geom[1][2]-10.,bx4 = geom[1][2]+10.;
+  TBox *bdc1 = new TBox(bx1,by1,bx2,by2);
+  TBox *bdc2 = new TBox(bx3,by1,bx4,by2);
+  bdc1->SetFillStyle(3013);bdc1->SetFillColor(2);
+  bdc2->SetFillStyle(3013);bdc2->SetFillColor(2);
+  TEllipse *tgtxy = new TEllipse(0.,0.,1.25,1.25,0,360,0.);//Size 30 mm
+  //    TEllipse *tgtxy = new TEllipse(0.,0.,1.5,1.5,0,360,0.);//Size 30 mm
+  TEllipse *vetoxy = new TEllipse(0.1,0.,1.3,1.3,0,360,0.);//Size 26 mm
+  TEllipse *tgtx = new TEllipse(0.,0.,0.3,1.25,0,360,-45.);//phi30,45deg
+  TEllipse *tgty = new TEllipse(0.,0.,0.3,1.25);//phi30,0deg
+  tgtxy->SetFillColor(1);
+  tgtxy->SetFillStyle(0);
+  vetoxy->SetFillColor(1);
+  vetoxy->SetFillStyle(0);
+
+  //TH1F *frame = gPad->DrawFrame(minx, miny, maxx, maxy);
+  TH1F *hist1 = new TH1F("hist1","X pos (cm)", 100, -5., 5.);
+  TH1F *hist2 = new TH1F("hist2","Theta (deg)", 100, -1.4, 1.4);
+  TH1F *hist3 = new TH1F("hist3","Y pos (cm)", 100, -5., 5.);
+  TH1F *hist4 = new TH1F("hist4","Phi (deg)", 100, -1.4, 1.4);
+  TH2F *hist10 = new TH2F("hist10","X-Y at Tgt", 100, -5., 5., 100, -5.0, 5.0);
+  //TH2F *hist20 = new TH2F("hist20","A-B at Tgt", 100, -5., 5., 100, -1.4, 1.4);
+  TH2F *hist20 = new TH2F("hist20","X-Y at Veto", 100, -5., 5., 100, -5., 5.);
+  //TH2F *hist10 = new TH2F("hist10","X-Y by DS(ID1)", 100, -5., 5., 100, -5.0, 5.0);
+  //TH2F *hist20 = new TH2F("hist20","X-Y by Recoil(ID2)", 100, -5., 5., 100, -5., 5.);
+  //TH2F *hist11 = new TH2F("hist11","X-A at Tgt", 100, -5., 5., 100, -1.4, 1.4);
+  //TH2F *hist21 = new TH2F("hist21","Y-B at Tgt", 100, -5., 5., 100, -1.4, 1.4);
+  TH2F *hist11 = new TH2F("hist11","X-A at Tgt(mm mrad)", 100, -40., 40., 100, -40.,40.);
+  TH2F *hist21 = new TH2F("hist21","Y-B at Tgt(mm mrad)", 100, -40., 40., 100, -40.,40.);
+  TH2F *hist12 = new TH2F("hist12","X Track(cm)", 130, -170.,90.,100,-5., 5.);
+  TH2F *hist22 = new TH2F("hist22","Y Track(cm)", 130, -170.,90.,100,-5., 5.);
+
+  cp->Draw();
+  cf->Draw();
+
+  TClonesArray * bdc_array=0;
+  rtree->SetBranchAddress("ESPRIBDC",&bdc_array);
+  TClonesArray * tdc_array=0;
+  rtree->SetBranchAddress("ESPRITDC",&tdc_array);
+  
+  Int_t nentry = rtree->GetEntries();
+
+  Int_t total=0;
+  for(Int_t ev=0; ev< nentry; ev++){
+    if(ev%1000==0){
+      cout<<"Event: "<<ev<<"\t"<<100.*ev/nentry<<" %"<<"\r";
+      fflush(stdout); 
+    }
+
+    rtree->GetEvent(ev);
+    //Coincidence Information 
+    Int_t ntdc = tdc_array->GetEntries();
+    Int_t coin=0;
+    for(Int_t i=0;i<ntdc;i++){
+      TArtTDCHit *tdc = (TArtTDCHit *)tdc_array->At(i);
+      Int_t layer = tdc->GetPlaneID();
+      Int_t ch = tdc->GetWireID();
+      if(layer==40){//CoinBit
+	if(ch==1){//changed at 2016/May/17
+	  coin=1;//Reaction
+	}else if(ch==2){//changed at 2016/May/17
+	  coin=2;//DS
+	}else if(ch>2){
+	  coin=3;//Both
+	}else{
+	  coin=0;//0 or not defined
+	}
+      }
+    }
+    Int_t nbdc = bdc_array->GetEntries();
+    //cout<<nbdc<<endl;
+    for(Int_t i=0;i<nbdc;i++){
+      TArtBDC *bdc = (TArtBDC *)bdc_array->At(i);
+      Int_t layer = bdc->GetLayer();
+      if((bdc->GetBDCX())<99990&&(bdc->GetBDCY())<99990){
+	xx[layer-1][0] = bdc->GetBDCX()-geom[layer-1][0];
+	xx[layer-1][1] = bdc->GetBDCA();
+	xx[layer-1][2] = bdc->GetBDCY()-geom[layer-1][1];
+	xx[layer-1][3] = bdc->GetBDCB();
+      }
+    }//end of array-chain
+    Double_t th = (xx[1][0]-xx[0][0])/(geom[1][2]-geom[0][2]);
+    Double_t ph = (xx[1][2]-xx[0][2])/(geom[1][2]-geom[0][2]);
+    Double_t x0 = (xx[0][0]*geom[1][2]-xx[1][0]*geom[0][2])/(geom[1][2]-geom[0][2]);
+    Double_t y0 = (xx[0][2]*geom[1][2]-xx[1][2]*geom[0][2])/(geom[1][2]-geom[0][2]);
+    //cout<<x0<<" "<<y0<<" "<<th*180/3.14<<" "<<ph*180/3.14<<endl;
+    hist1->Fill(x0);hist2->Fill(th*r2d);hist3->Fill(y0);hist4->Fill(ph*r2d);
+    hist10->Fill(x0,y0);//hist20->Fill(th*r2d,ph*r2d);
+    hist20->Fill(x0+th*z_veto,y0+ph*z_veto);
+    //if(coin==1)
+    //hist10->Fill(x0,y0);
+    //if(coin==2)
+    //hist20->Fill(x0,y0);
+    //hist11->Fill(x0,th*r2d);hist21->Fill(y0,ph*r2d);
+    hist11->Fill(x0*10,th*1000);hist21->Fill(y0*10,ph*1000);
+    for(Int_t i=0;i<100;i++){
+      Double_t zz=minx+(maxx-minx)/100*i;
+      hist12->Fill(zz,x0+th*zz);hist22->Fill(zz,y0+ph*zz);
+    }
+    if(ev%period==0){
+      cp->Clear();
+      //cp->Divide(2,2);
+      cp->Divide(2,3);
+      cp->cd(1);hist1->Draw();cp->cd(2);hist2->Draw();
+      cp->cd(3);hist3->Draw();cp->cd(4);hist4->Draw();
+      cp->cd(5);hist10->Draw("col");tgtxy->Draw("same");
+      cp->cd(6);hist20->Draw("col");vetoxy->Draw("same");
+      cp->Update();
+
+      cf->Clear();
+      cf->Divide(2,2);
+      cf->cd(1);hist11->Draw("col");cf->cd(3);hist21->Draw("col");
+      cf->cd(2);hist12->Draw("col"); bdc1->Draw("same"); bdc2->Draw("same"); tgtx->Draw("same");
+      cf->cd(4);hist22->Draw("col"); bdc1->Draw("same"); bdc2->Draw("same"); tgty->Draw("same");
+      cf->Update();
+    }
+    total++;
+  }//end of event loop
+  cout << "Total/Ana: "<<rtree->GetEntries()<<"/"<<total<<" Events"<<endl;
+  //fout.close();
+  //cp->Update();
+  //cf->Update();
+  cf->WaitPrimitive();
+  return 0;
+}
